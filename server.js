@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const youtubedl = require('yt-dlp-exec');
+const { spawn } = require('child_process');
 
 const app = express();
 app.use(cors());
@@ -8,47 +8,51 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-app.get('/download', async (req, res) => {
+app.get('/download', (req, res) => {
     const videoUrl = req.query.url;
 
     if (!videoUrl) {
         return res.status(400).json({ error: "Zəhmət olmasa url parametri daxil edin." });
     }
 
-    try {
-        // Video məlumatlarını (adını) oxuyuruq
-        const info = await youtubedl(videoUrl, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            preferFreeFormats: true
-        });
+    // Əvvəlcə videonun başlığını əldə edirik
+    const getTitle = spawn('yt-dlp', ['--get-title', '--no-warnings', videoUrl]);
+    let titleData = '';
 
-        const rawTitle = info.title || "Audio";
-        const cleanTitle = encodeURIComponent(rawTitle.replace(/[/\\?%*:|"<>]/g, '_'));
+    getTitle.stdout.on('data', (chunk) => {
+        titleData += chunk.toString();
+    });
 
-        // Başlıqları MP3 axını kimi nizamlayırıq
+    getTitle.on('close', (code) => {
+        let cleanTitle = "audio";
+        if (titleData.trim()) {
+            cleanTitle = encodeURIComponent(titleData.trim().replace(/[/\\?%*:|"<>]/g, '_'));
+        }
+
         res.header('Content-Disposition', `attachment; filename="${cleanTitle}.mp3"`);
         res.header('Content-Type', 'audio/mpeg');
 
-        // yt-dlp ilə birbaşa səs axınını çıxarıb istifadəçiyə göndəririk
-        const stream = youtubedl.exec(videoUrl, {
-            extractAudio: true,
-            audioFormat: 'mp3',
-            output: '-'
+        // yt-dlp ilə birbaşa MP3 axını çıxarıb res-ə yönləndiririk
+        const ytdlp = spawn('yt-dlp', [
+            '-x',
+            '--audio-format', 'mp3',
+            '-o', '-',
+            videoUrl
+        ]);
+
+        ytdlp.stdout.pipe(res);
+
+        ytdlp.stderr.on('data', (err) => {
+            console.error(`yt-dlp stderr: ${err}`);
         });
 
-        stream.stdout.pipe(res);
-
-        stream.stderr.on('data', (data) => {
-            console.error(`yt-dlp stderr: ${data}`);
+        ytdlp.on('error', (err) => {
+            console.error("yt-dlp başlama xətası:", err);
+            if (!res.headersSent) {
+                res.status(500).json({ error: "Daxili çevirmə xətası baş verdi." });
+            }
         });
-
-    } catch (err) {
-        console.error("Xəta:", err);
-        if (!res.headersSent) {
-            res.status(500).json({ error: "Səsi çıxarmaq mümkün olmadı." });
-        }
-    }
+    });
 });
 
 app.get('/', (req, res) => {
