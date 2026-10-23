@@ -1,14 +1,12 @@
-FROM node:18-bullseye
+FROM node:20-alpine
 
-# Python, ffmpeg və asılılıqları quraşdırırıq
-RUN apt-get update && apt-get install -y \
+# Gərəkli paketləri quraşdırırıq (Python, ffmpeg və yt-dlp)
+RUN apk add --no-cache \
     python3 \
-    python3-pip \
     ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    curl
 
-# yt-dlp alətini yeniləyirik
+# yt-dlp alətini endirib icazə veririk
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /usr/src/app
